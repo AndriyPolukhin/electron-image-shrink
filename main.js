@@ -1,9 +1,25 @@
+// * Squirrel Events!
+// * handle setupevents as quickly as possible
+const setupEvents = require('./installers/setupEvents');
+if (setupEvents.handleSquirrelEvent()) {
+  // squirrel event handled and app will exit in 1000ms, so don't do anything else
+  return;
+}
 // * Dependencies
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
-
+// * Core Node:
+const path = require('path');
+const os = require('os');
+// * Core Electron
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
+// * 3rd Party: Imagemin
+const imagemin = require('imagemin');
+const imageminMozjpeg = require('imagemin-mozjpeg');
+const imageminPngquant = require('imagemin-pngquant');
+const slash = require('slash');
+const log = require('electron-log');
 // * Set ENV
-process.env.NODE_ENV = 'development';
-// process.env.NODE_ENV = 'production';
+// process.env.NODE_ENV = 'development';
+process.env.NODE_ENV = 'production';
 // * Check is Dev Env
 const isDev = process.env.NODE_ENV !== 'production' ? true : false;
 const isMac = process.platform === 'darwin' ? true : false;
@@ -19,7 +35,7 @@ function createMainWindow() {
     title: 'ImageShrink',
     width: isDev ? 800 : 500,
     height: 600,
-    icon: `./assets/icons/Icon_256x256.png`,
+    icon: path.join(__dirname, '/assets/icons/Icon_256x256.png'),
     resizable: isDev ? true : false,
     backgroundColor: '#fff',
     webPreferences: {
@@ -114,10 +130,37 @@ const menu = [
     : []),
 ];
 
-// * Catch the ipc
+// * Catch the ipcRenderer data, on send
+// * 1. Catch the data
 ipcMain.on('image:minimize', (e, options) => {
-  console.log(options);
+  options.dest = path.join(os.homedir(), 'imageshrink');
+  shrinkImage(options);
 });
+
+// * 2. @fn to make imagemin operations
+async function shrinkImage({ imgPath, quality, dest }) {
+  try {
+    const pngQuality = quality / 100;
+
+    const files = await imagemin([slash(imgPath)], {
+      destination: dest,
+      plugins: [
+        imageminMozjpeg({ quality }),
+        imageminPngquant({
+          quality: [pngQuality, pngQuality],
+        }),
+      ],
+    });
+
+    log.info(files);
+
+    shell.openPath(dest);
+
+    mainWindow.webContents.send('image:done');
+  } catch (error) {
+    log.error(error);
+  }
+}
 
 // * Closing boiler-plate
 app.on('window-all-closed', () => {
